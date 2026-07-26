@@ -1,4 +1,4 @@
-# Your AI terminal helper — one page
+# Your AI terminal helper: one page
 
 You only need to remember **two commands**.
 
@@ -7,7 +7,7 @@ ai <your question>      # ask anything
 ai fix                  # something broke, help me
 ```
 
-**Forgotten how it works?** Type `ai help` — it prints everything on this page,
+**Forgotten how it works?** Type `ai help`. It prints everything on this page,
 with examples. You never need to come back to this document.
 
 ---
@@ -15,7 +15,7 @@ with examples. You never need to come back to this document.
 ## Setup (once, about 3 minutes)
 
 The `ai` command is already installed. You only need to add your own keys.
-**Do not edit `~/.bashrc`** — you never need to touch it.
+**Do not edit `~/.bashrc`.** You never need to touch it.
 
 ```bash
 cp /usr/local/share/ai-toolkit/ai-keys.template ~/.ai-keys
@@ -24,7 +24,7 @@ chmod 600 ~/.ai-keys   # keeps your keys private
 ai status              # should say "ready"
 ```
 
-Get your own free keys first — a minute each, no credit card:
+Get your own free keys first. A minute each, no credit card:
 
 | | Where | Why |
 |---|---|---|
@@ -41,7 +41,7 @@ If `ai status` says `no key`, check that `~/.ai-keys` has no spaces around the
 
 ---
 
-## 1. `ai` — ask anything
+## 1. `ai`: ask anything
 
 No quotes needed for ordinary questions.
 
@@ -53,7 +53,7 @@ ai how do I copy a folder and everything inside it
 
 If the answer is a command, it offers to run it for you. Press Enter for yes.
 
-**Ask about a file** — just name it:
+**Ask about a file** by naming it:
 
 ```bash
 ai pw.out what went wrong
@@ -64,7 +64,7 @@ This is the one to use for long output files. It handles thousands of lines.
 
 ---
 
-## 2. `ai fix` — when you're stuck
+## 2. `ai fix`: when you're stuck
 
 Use this when something is broken and you don't know why. Unlike `ai`, it can
 actually look around: list your files, read them, run things, and react.
@@ -85,7 +85,7 @@ Useful inside: `/quit` `/reset` `/cost` `/status`
 
 ---
 
-## Safety — what it will refuse
+## Safety: what it will refuse
 
 It will **never** run these, even if you ask:
 
@@ -105,7 +105,7 @@ ai status
 ```
 
 Shows what's left. If one provider is used up it switches to another
-automatically — you don't need to do anything.
+automatically, so you don't need to do anything.
 
 ---
 
