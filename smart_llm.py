@@ -306,9 +306,17 @@ def load_env_files() -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            key = key.strip().lstrip("export ").strip()
+            key = key.strip()
+            if key.startswith("export "):        # lstrip("export ") ate real letters
+                key = key[len("export "):].strip()
             value = value.strip().strip('"').strip("'")
-            os.environ.setdefault(key, value)
+            # The key template ships blank placeholders (`GROQ_API_KEY=`). A blank
+            # must never shadow a real value set further down the file, which is
+            # where people naturally paste keys.
+            if not value:
+                continue
+            if not os.environ.get(key):
+                os.environ[key] = value
 
 
 def expand(value: str) -> str:

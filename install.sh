@@ -107,12 +107,26 @@ fi
 # The python3 a plain student gets is not necessarily the one running this
 # script - a conda env is the classic trap. Check the one they will actually use.
 STUDENT_PY="$(env -i PATH=/usr/local/bin:/usr/bin:/bin sh -c 'command -v python3' 2>/dev/null || true)"
+
+# For a shared install the package must be visible to OTHER users too. Plain
+# `import openai` would succeed off ~/.local/lib even when nobody else can see
+# it, so suppress the per-user site directory while checking.
+py_has_openai() {
+  if [[ "$MODE" == "system" ]]; then
+    env PYTHONNOUSERSITE=1 "$STUDENT_PY" -c "import openai" 2>/dev/null
+  else
+    "$STUDENT_PY" -c "import openai" 2>/dev/null
+  fi
+}
+
 if [[ -n "$STUDENT_PY" ]]; then
-  if ! "$STUDENT_PY" -c "import openai" 2>/dev/null; then
+  if ! py_has_openai; then
     echo
     echo "Installing 'openai' into $STUDENT_PY (the interpreter students will use)..."
-    "$STUDENT_PY" -m pip install --quiet openai 2>/dev/null \
-      || "$STUDENT_PY" -m pip install --quiet --break-system-packages openai 2>/dev/null \
+    # PIP_USER=0 stops pip quietly installing into ~/.local when a shared
+    # install is what was asked for.
+    PIP_USER=0 "$STUDENT_PY" -m pip install --quiet openai 2>/dev/null \
+      || PIP_USER=0 "$STUDENT_PY" -m pip install --quiet --break-system-packages openai 2>/dev/null \
       || {
         echo
         echo "WARNING: could not install 'openai' for $STUDENT_PY."
@@ -121,7 +135,14 @@ if [[ -n "$STUDENT_PY" ]]; then
         echo "             sudo $STUDENT_PY -m pip install --break-system-packages openai"
       }
   fi
-  "$STUDENT_PY" -c "import openai" 2>/dev/null && echo "Checked: $STUDENT_PY can import openai."
+  if py_has_openai; then
+    echo "Checked: $STUDENT_PY can import openai$( [[ "$MODE" == "system" ]] && echo " (visible to all users)" )."
+  elif [[ "$MODE" != "system" ]]; then
+    :
+  else
+    echo "WARNING: openai is not visible system-wide. Students will hit"
+    echo "         \"No module named 'openai'\". Run:  sudo $STUDENT_PY -m pip install --break-system-packages openai"
+  fi
 fi
 
 echo
