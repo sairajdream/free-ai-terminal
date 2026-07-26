@@ -321,8 +321,8 @@ else
   echo "     sudo sed -i '1s|^#!.*|#!$SHAREDIR/venv/bin/python3|' $SHAREDIR/ai"
   echo
   echo "   If apt says a lock is held, wait a minute and try again -"
-  echo "   Ubuntu runs its own updater for a while after booting."
-  echo "   If apt cannot reach a mirror, check the VM has a network."
+  echo "   Debian, Ubuntu and Mint all run their own updater for a while"
+  echo "   after booting. If apt cannot reach a mirror, check the network."
   echo
   STEP=$((STEP + 1))
 fi
