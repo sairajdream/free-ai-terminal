@@ -34,7 +34,7 @@ actually blocks students from doing it. So if you would rather check first:
 
 ```bash
 git clone https://github.com/sairajdream/free-ai-terminal.git
-cd ai-terminal-helper
+cd free-ai-terminal
 less install.sh        # read it
 sudo ./install.sh      # then run it
 ```
