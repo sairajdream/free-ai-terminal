@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+ai - one command for everything, built for people new to the terminal.
+
+    ai how do I find big files            ask anything (no quotes needed)
+    ai -f pw.out why did this fail        ask about a file
+    ai fix                                something broke - interactive helper
+
+That's it. Two things to remember: `ai <question>` and `ai fix`.
+
+Everything underneath is smart_llm.py (provider routing + quota failover) and
+tutor.py (safe command execution). This replaces sgpt for us, and unlike sgpt
+it fails over between providers, so it keeps working when one quota runs out.
+
+Utilities:
+    ai status         how much free quota is left
+    ai help           this message
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import smart_llm
+import tutor
+
+if sys.stdout.isatty() and os.environ.get("TERM") != "dumb" and not os.environ.get("NO_COLOR"):
+    C_Q = "\033[92m"; C_CMD = "\033[96m"; C_DIM = "\033[90m"
+    C_BAD = "\033[91m"; C_ASK = "\033[93m"; C_OFF = "\033[0m"
+else:
+    C_Q = C_CMD = C_DIM = C_BAD = C_ASK = C_OFF = ""   # piping to a file or less
+
+# Deliberately short: this is the whole per-call overhead, ~110 tokens.
+SYSTEM = """You are a Linux helper for a complete beginner at a terminal.
+Answer in at most 3 short sentences, plain language, no jargon.
+When a shell command is the answer, put exactly one command in a ```bash block.
+Never suggest sudo, installing packages, or deleting files."""
+
+FILE_SYSTEM = """You are helping a beginner understand output from a Linux/scientific program.
+Be concise and concrete. Point at the specific line that matters and say what it means."""
+
+
+def extract_command(text: str) -> str | None:
+    """Pull a single runnable command out of a fenced block, if there is one."""
+    for block in re.findall(r"```(?:bash|sh|shell|console)?\n(.*?)```", text, re.DOTALL):
+        lines = [l.strip() for l in block.strip().splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+        if len(lines) == 1:
+            return lines[0].lstrip("$ ").strip()
+    return None
+
+
+def offer_to_run(cmd: str) -> None:
+    reason = tutor.is_forbidden(cmd)
+    if reason:
+        print(f"{C_BAD}Not offering to run that - it {reason}.{C_OFF}")
+        return
+    safe = tutor.is_read_only(cmd)
+    prompt = (f"{C_ASK}Run it? [Y/n] {C_OFF}" if safe
+              else f"{C_ASK}This changes something. Run it? [y/N] {C_OFF}")
+    try:
+        answer = input(prompt).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    go = (answer in ("", "y", "yes")) if safe else (answer in ("y", "yes"))
+    if not go:
+        return
+    print(f"{C_CMD}$ {cmd}{C_OFF}")
+    try:
+        subprocess.run(cmd, shell=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        print(f"{C_BAD}(timed out after 120s){C_OFF}")
+    except Exception as e:                                  # noqa: BLE001
+        print(f"{C_BAD}(failed: {e}){C_OFF}")
+
+
+def do_ask(question: str, files: list[str]) -> int:
+    parts = []
+    for path in files:
+        try:
+            body = Path(path).read_text(errors="replace")
+        except OSError as e:
+            print(f"{C_BAD}cannot read {path}: {e}{C_OFF}")
+            return 1
+        if len(body) > 200_000:
+            body = body[:100_000] + "\n...[middle cut]...\n" + body[-100_000:]
+        parts.append(f"--- {path} ---\n{body}")
+    parts.append(question)
+
+    try:
+        answer, meta = smart_llm.ask(
+            "\n\n".join(parts),
+            system=FILE_SYSTEM if files else SYSTEM,
+            prefer_long=bool(files),
+            max_tokens=700,
+            return_meta=True,
+            quiet=True,
+        )
+    except RuntimeError as e:
+        print(f"{C_BAD}{e}{C_OFF}")
+        return 2
+
+    print(f"\n{answer}\n")
+    print(f"{C_DIM}[{meta['provider']}, {meta['tokens']} tokens]{C_OFF}")
+
+    cmd = extract_command(answer)
+    if cmd and sys.stdin.isatty():
+        offer_to_run(cmd)
+    return 0
+
+
+HELP = f"""{C_Q}ai{C_OFF} - your AI helper for the terminal. There are only two commands.
+
+{C_Q}1. Ask a question{C_OFF}
+    {C_CMD}ai how do I see how much disk space is free{C_OFF}
+    {C_CMD}ai what does chmod 755 mean{C_OFF}
+    {C_CMD}ai how do I copy a folder and everything inside it{C_OFF}
+
+  You do not need quotes for ordinary questions. Only add quotes if your
+  question contains {C_CMD}?{C_OFF} {C_CMD}*{C_OFF} {C_CMD}'{C_OFF} or {C_CMD}"{C_OFF} - like this:
+    {C_CMD}ai "what is the * doing in this command?"{C_OFF}
+
+  If the answer is a command, it shows it and asks whether to run it.
+  Press Enter to run it, or type {C_CMD}n{C_OFF} to skip.
+
+{C_Q}2. Ask about a file{C_OFF}
+    {C_CMD}ai pw.out what went wrong{C_OFF}                 one file
+    {C_CMD}ai pw.in pw.out why did this not converge{C_OFF}  two files
+    {C_CMD}ai -f pw.out summarise the errors{C_OFF}          -f also works
+
+  Put the file names FIRST, then your question. Any file that exists is
+  attached automatically. Use this for long output files - it can read
+  thousands of lines.
+
+{C_Q}3. When something is broken: {C_CMD}ai fix{C_OFF}
+    {C_CMD}ai fix{C_OFF}                                     start a conversation
+    {C_CMD}ai fix my script gives command not found{C_OFF}   or ask straight away
+
+  This one can look around for you - list your files, read them, run things
+  and react to what it finds. Use it when you are stuck and do not know why.
+  Inside it: {C_CMD}/quit{C_OFF} to leave, {C_CMD}/reset{C_OFF} to start over, {C_CMD}/cost{C_OFF} to see usage.
+
+{C_Q}Safety{C_OFF}
+  Commands that only look at things ({C_CMD}ls{C_OFF} {C_CMD}cat{C_OFF} {C_CMD}df{C_OFF} {C_CMD}grep{C_OFF}) run right away.
+  Commands that change something always ask you first - read them before
+  saying yes. Dangerous ones ({C_CMD}rm -rf ~{C_OFF}, anything with {C_CMD}sudo{C_OFF}) are refused.
+
+{C_Q}Other{C_OFF}
+    {C_CMD}ai status{C_OFF}      how much free quota you have left today
+    {C_CMD}ai help{C_OFF}        this message
+
+{C_BAD}Remember:{C_OFF} the AI is often confident and wrong. It is good at explaining
+errors and remembering command syntax. Do not trust it to invent scientific
+input files, and never trust a number it gives you without checking.
+"""
+
+
+def usage() -> None:
+    print(HELP)
+
+
+def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    smart_llm.load_env_files()
+
+    if not argv or argv[0] in ("help", "-h", "--help"):
+        usage()
+        return 0
+    if argv[0] == "status":
+        return smart_llm.main(["--status"])
+    if argv[0] == "fix":
+        return tutor.main(argv[1:], prog="ai fix")
+
+    files: list[str] = []
+    while argv and argv[0] in ("-f", "--file"):
+        argv.pop(0)
+        if argv:
+            files.append(argv.pop(0))
+
+    # Bare filenames that exist are treated as attachments, so
+    # `ai -f pw.out why did this fail` and `ai pw.out why did this fail` both work.
+    question_words = []
+    for word in argv:
+        if not question_words and os.path.isfile(word) and word not in files:
+            files.append(word)
+        else:
+            question_words.append(word)
+
+    question = " ".join(question_words).strip()
+    if not question:
+        if files:
+            question = "Explain what this file shows and whether anything went wrong."
+        else:
+            usage()
+            return 1
+
+    if not sys.stdin.isatty():
+        piped = smart_llm.read_piped_stdin().strip()
+        if piped:
+            question = f"--- piped input ---\n{piped}\n\n{question}"
+
+    return do_ask(question, files)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

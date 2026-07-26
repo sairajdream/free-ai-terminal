@@ -1,0 +1,9 @@
+# personal state - never commit these
+usage_state.json
+.ai-keys
+.env
+providers.json
+
+__pycache__/
+*.pyc
+*.tmp

@@ -1,0 +1,55 @@
+# ~/.ai-keys  -  your personal AI API keys
+#
+# Copy this file to your home folder as .ai-keys and paste your own keys in.
+# Do NOT edit ~/.bashrc - this file is all you need.
+#
+#     cp /usr/local/share/ai-toolkit/ai-keys.template ~/.ai-keys
+#     nano ~/.ai-keys
+#     chmod 600 ~/.ai-keys
+#     ai status
+#
+# Rules:
+#   - one key per line, KEY=value, no spaces around the =
+#   - no quotes needed
+#   - lines starting with # are ignored
+#   - get YOUR OWN keys. The free limits are per account, so a shared key
+#     means the whole class runs out at the same moment.
+#
+# You do not need all of them. One is enough to start. Two is comfortable.
+
+# ---------------------------------------------------------------------------
+# START HERE - these two take about a minute each and need no credit card
+# ---------------------------------------------------------------------------
+
+# https://console.groq.com/keys        (fastest; handles most questions)
+GROQ_API_KEY=
+
+# https://console.mistral.ai/api-keys  (used by `ai fix`)
+MISTRAL_API_KEY=
+
+# ---------------------------------------------------------------------------
+# Optional extras - add later if you run out
+# ---------------------------------------------------------------------------
+
+# https://build.nvidia.com/            (no daily limit, but can be slow)
+NVIDIA_API_KEY=
+
+# https://aistudio.google.com/apikey   (only 20 requests/day, but reads huge
+#                                       files - save it for long output)
+GEMINI_API_KEY=
+
+# https://cloud.cerebras.ai/
+CEREBRAS_API_KEY=
+
+# https://dashboard.cohere.com/api-keys
+COHERE_API_KEY=
+
+# https://openrouter.ai/keys
+OPENROUTER_API_KEY=
+
+# ---------------------------------------------------------------------------
+# Privacy note
+# ---------------------------------------------------------------------------
+# Mistral's free tier may train on what you send it. That is fine for
+# "how do I list files", but do not paste unpublished research data.
+# To turn it off entirely, delete the MISTRAL_API_KEY line above.
