@@ -31,7 +31,7 @@ BINDIR="$PREFIX/bin"
 
 # Where the source files are. When this script is piped from curl there is no
 # directory to read them from, so fetch the repo instead.
-REPO="${AI_TOOLKIT_REPO:-sairajdream/ai-terminal-helper}"
+REPO="${AI_TOOLKIT_REPO:-sairajdream/free-ai-terminal}"
 BRANCH="${AI_TOOLKIT_BRANCH:-main}"
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"

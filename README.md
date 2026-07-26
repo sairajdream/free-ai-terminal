@@ -17,13 +17,13 @@ workshop where students had never used a terminal before.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sairajdream/ai-terminal-helper/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sairajdream/free-ai-terminal/main/install.sh | bash
 ```
 
 For everyone on a shared machine or a teaching VM:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sairajdream/ai-terminal-helper/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/sairajdream/free-ai-terminal/main/install.sh | sudo bash
 ```
 
 <details>
@@ -33,7 +33,7 @@ Piping a URL straight into `bash` runs code you have not read. This tool
 actually blocks students from doing it. So if you would rather check first:
 
 ```bash
-git clone https://github.com/sairajdream/ai-terminal-helper.git
+git clone https://github.com/sairajdream/free-ai-terminal.git
 cd ai-terminal-helper
 less install.sh        # read it
 sudo ./install.sh      # then run it
