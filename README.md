@@ -40,7 +40,14 @@ sudo ./install.sh      # then run it
 ```
 </details>
 
-Only dependency is the `openai` Python package, which the installer handles.
+Only dependency is the `openai` Python package. The installer adds it, including
+installing `pip` first if Debian or Ubuntu left it out. If that step cannot
+finish it says so and prints the one command to run; it never fails silently.
+
+Run it with `sudo`. Without root it installs for your user alone, into
+`~/.local`, which is not what you want on a shared teaching VM. Run it from
+outside any conda environment too, so `openai` lands in the system Python that
+students actually use.
 
 ---
 
