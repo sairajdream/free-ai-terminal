@@ -55,35 +55,57 @@ chmod 600 ~/.ai-keys
 ai status
 ```
 
-**Start with these two — they cover almost everything:**
+### The seven worth having
 
-| Provider | Get a key | Free limit | Used for |
-|---|---|---|---|
-| **Groq** | **[console.groq.com/keys](https://console.groq.com/keys)** | 30/min · ~1,000/day per model | almost every question — very fast |
-| **Mistral** | **[console.mistral.ai/api-keys](https://console.mistral.ai/api-keys)** | ~1/sec · ~1B tokens/month | powers `ai fix` |
+Add as many as you like — unset keys are skipped silently. **Two is enough to
+start; ⭐ marks those.** Every limit and latency below was measured against the
+live API in July 2026, not copied from a blog post.
+
+| # | Provider | Get a key | Free limit | Measured | Best for |
+|---|---|---|---|---|---|
+| 1 ⭐ | **Groq** | [console.groq.com/keys](https://console.groq.com/keys) | 30/min · ~1,000/day **per model** · 8–12k tok/min | ✅ 0.5–1.0 s | Almost every question. Fastest free inference anywhere. Two model buckets from one key |
+| 2 ⭐ | **Mistral** | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) | ~1/sec · 500k tok/min · ~1B tok/month | ✅ 0.5–2 s | Powers `ai fix`. Huge volume ⚠️ free tier trains on your data |
+| 3 | **NVIDIA NIM** | [build.nvidia.com](https://build.nvidia.com/) | 40/min · **no daily cap** | ✅ 1–58 s | The volume backstop when everything else is spent. Latency swings wildly |
+| 4 | **Google AI Studio** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | **20/day per model** · 250k tok/min · 1M context | ✅ 0.6–1.2 s | Huge files. `ai bigfile.log what broke` routes here automatically |
+| 5 | **Cohere** | [dashboard.cohere.com/api-keys](https://dashboard.cohere.com/api-keys) | 20/min · 1,000/**month** (~33/day) | ✅ 0.6–2.7 s | A genuinely different model family — a second opinion when an answer smells wrong |
+| 6 | **OpenRouter** | [openrouter.ai/keys](https://openrouter.ai/keys) | 20/min · **50/day** across all `:free` models | ✅ 0.7–3.8 s | ~15 models behind one key. The escape hatch when a model ID gets retired |
+| 7 | **Cerebras** | [cloud.cerebras.ai](https://cloud.cerebras.ai/) | 5/min · 30k tok/min · **1M tokens/day** | ⚠️ 402 on our test account | A few very large prompts. Free tier may need activating in the billing tab |
 
 <details>
-<summary>Optional extras, once you run out</summary>
+<summary>Also supported (configured, lower priority)</summary>
 
-| Provider | Get a key | Free limit | Notes |
-|---|---|---|---|
-| NVIDIA NIM | [build.nvidia.com](https://build.nvidia.com/) | 40/min, no daily cap | latency varies a lot (8s–58s measured) |
-| Google AI Studio | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | **20/day per model**, 1M context | save it for huge files |
-| Cerebras | [cloud.cerebras.ai](https://cloud.cerebras.ai/) | 5/min, 1M tokens/day | few big prompts, not chat |
-| Cohere | [dashboard.cohere.com/api-keys](https://dashboard.cohere.com/api-keys) | 1,000/month (~33/day) | different model family |
-| OpenRouter | [openrouter.ai/keys](https://openrouter.ai/keys) | 50/day total | escape hatch, many models |
-| GitHub Models | [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens) | 150/day (mini) | needs a **fine-grained** PAT with the **Models** permission |
-| Cloudflare | [dash.cloudflare.com](https://dash.cloudflare.com/profile/api-tokens) | 10k neurons/day | also needs `CLOUDFLARE_ACCOUNT_ID` |
-| Ollama | [ollama.com](https://ollama.com/) | unlimited, offline | no key; fully private |
+| Provider | Get a key | Free limit | Measured | Notes |
+|---|---|---|---|---|
+| GitHub Models | [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens) | 10/min · 150/day (mini) · 8k context | ❌ 401 with a classic token | Needs a **fine-grained** PAT with the **Models** permission. 8k context is too small for long logs |
+| Cloudflare Workers AI | [dash.cloudflare.com](https://dash.cloudflare.com/profile/api-tokens) | 10,000 neurons/day | not tested | Also needs `CLOUDFLARE_ACCOUNT_ID`. Mostly re-serves the same Llama models as Groq and NVIDIA |
+| Ollama | [ollama.com](https://ollama.com/) | unlimited, offline, private | not tested | No key at all. The only option that keeps unpublished data on your machine. Enable with `--enable ollama` |
+| Pollinations | — | credit-limited | not tested | Keyless emergency fallback, community-hosted. Off by default |
 
-**Get your own keys.** Free limits are counted per account, so a shared key
-means everyone runs out at the same moment.
+Adding any other OpenAI-compatible endpoint takes four lines of JSON — see
+[Adding a provider](#adding-a-provider).
 </details>
 
-> **Numbers verified July 2026 against each provider's live API.** Google's own
-> 429 response reports `GenerateRequestsPerDayPerProjectPerModel-FreeTier` with
-> a value of **20** — the "1,500/day" and "500/day" figures repeated across the
-> internet are years out of date.
+**Get your own keys.** Free limits are counted per *account* (Groq meters per
+organisation), so one shared key means everybody runs out at the same moment.
+
+#### What the testing changed
+
+- **Google is 20 requests/day, not 1,500 or 500.** Its own 429 reports
+  `GenerateRequestsPerDayPerProjectPerModel-FreeTier` with a value of `20`. The
+  figures repeated across the internet are years out of date, so this tool
+  keeps Gemini in reserve for large-context work instead of everyday questions.
+- **Groq is 1,000/day on the 70B model, not 14,400.** The 14,400 figure belongs
+  to the small 8B model.
+- **Groq cannot run tool-calling agents.** Its 8k tokens/minute limit is smaller
+  than a typical agent's tool schema (~25k), so you get an instant `413`. It is
+  excellent for everything else, which is why `ai` uses it and `ai fix` does not.
+- **llama-3.3-70b emitted malformed tool calls in 2 of 3 runs.** Mistral, NVIDIA
+  and Gemini were clean 3 of 3, so `ai fix` prefers those.
+- **SambaNova, Hugging Face and Together are not permanent free tiers** any more
+  — they are trial credits. They are deliberately not included.
+
+Providers are tried abundant-first, scarce-last, so a throwaway one-liner never
+burns a slot you will want later. `ai status` shows exactly what is left.
 
 ---
 

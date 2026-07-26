@@ -18,34 +18,63 @@
 # You do not need all of them. One is enough to start. Two is comfortable.
 
 # ---------------------------------------------------------------------------
-# START HERE - these two take about a minute each and need no credit card
+# START HERE - these two cover almost everything. A minute each, no card.
 # ---------------------------------------------------------------------------
 
-# https://console.groq.com/keys        (fastest; handles most questions)
+# 1. GROQ - fastest free inference; answers nearly every question
+#    30/min, ~1000/day per model
+#    https://console.groq.com/keys
 GROQ_API_KEY=
 
-# https://console.mistral.ai/api-keys  (used by `ai fix`)
+# 2. MISTRAL - powers `ai fix`; enormous monthly volume
+#    ~1/sec, ~1B tokens/month
+#    NOTE: the free tier may train on what you send it
+#    https://console.mistral.ai/api-keys
 MISTRAL_API_KEY=
 
 # ---------------------------------------------------------------------------
-# Optional extras - add later if you run out
+# ADD THESE LATER - each one covers a gap the others do not
 # ---------------------------------------------------------------------------
 
-# https://build.nvidia.com/            (no daily limit, but can be slow)
+# 3. NVIDIA - no daily limit at all; the backstop when others run dry
+#    40/min, latency varies (1-58s measured)
+#    https://build.nvidia.com/
 NVIDIA_API_KEY=
 
-# https://aistudio.google.com/apikey   (only 20 requests/day, but reads huge
-#                                       files - save it for long output)
+# 4. GOOGLE AI STUDIO - only 20 requests/DAY, but reads 1M-token files.
+#    Keep it for `ai bigfile.log what broke`, not for chat.
+#    https://aistudio.google.com/apikey
 GEMINI_API_KEY=
 
-# https://cloud.cerebras.ai/
-CEREBRAS_API_KEY=
-
-# https://dashboard.cohere.com/api-keys
+# 5. COHERE - a different model family; good for a second opinion
+#    20/min, 1000/month (about 33/day)
+#    https://dashboard.cohere.com/api-keys
 COHERE_API_KEY=
 
-# https://openrouter.ai/keys
+# 6. OPENROUTER - ~15 models behind one key; useful when a model disappears
+#    20/min, 50/day total across all free models
+#    https://openrouter.ai/keys
 OPENROUTER_API_KEY=
+
+# 7. CEREBRAS - 1M tokens/day but only 5 requests/min: a few big prompts
+#    If you get "402 Payment required", activate the free tier in the
+#    billing tab of your Cerebras dashboard.
+#    https://cloud.cerebras.ai/
+CEREBRAS_API_KEY=
+
+# ---------------------------------------------------------------------------
+# Others the tool also supports (leave blank unless you want them)
+# ---------------------------------------------------------------------------
+
+# GitHub Models - needs a FINE-GRAINED token with the "Models" permission.
+# A classic ghp_ token returns 401.
+# https://github.com/settings/personal-access-tokens
+GITHUB_TOKEN=
+
+# Cloudflare Workers AI - needs BOTH of these
+# https://dash.cloudflare.com/profile/api-tokens
+CLOUDFLARE_API_KEY=
+CLOUDFLARE_ACCOUNT_ID=
 
 # ---------------------------------------------------------------------------
 # Privacy note
