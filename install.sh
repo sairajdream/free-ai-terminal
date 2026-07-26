@@ -29,6 +29,12 @@ on_err() {
 }
 trap 'on_err $LINENO' ERR
 
+# One place to register temporary files. Several EXIT traps would overwrite each
+# other and leak whatever the earlier one was meant to remove.
+CLEANUP=()
+cleanup() { local p; for p in "${CLEANUP[@]:-}"; do [[ -n "$p" ]] && rm -rf "$p"; done; }
+trap cleanup EXIT
+
 PREFIX="/usr/local"
 MODE="system"
 UNINSTALL=0
@@ -51,7 +57,7 @@ BINDIR="$PREFIX/bin"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 if [[ -z "$SRC" || ! -f "$SRC/smart_llm.py" ]]; then
   command -v curl >/dev/null || { echo "curl is required"; exit 1; }
-  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  TMP="$(mktemp -d)"; CLEANUP+=("$TMP")
   echo "Downloading $REPO ($BRANCH)..."
   if ! curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" | tar xz -C "$TMP"; then
     echo "Could not download $REPO. Check the name, or clone the repo and run ./install.sh"
@@ -122,30 +128,63 @@ has_openai() {   # $1 = interpreter
 
 have_pip() { "$1" -m pip --version >/dev/null 2>&1; }
 
+# Everything apt says gets kept here. Hiding it was a mistake: when apt failed
+# the user was told "still missing" with no clue whether it was a dpkg lock, a
+# dead mirror or a broken dependency.
+FAILLOG="$(mktemp)"; CLEANUP+=("$FAILLOG")
+
+# apt-get, but retried: on a freshly booted VM unattended-upgrades usually
+# holds the dpkg lock for the first minute or two.
+apt_try() {   # $@ = apt-get arguments
+  local attempt
+  for attempt in 1 2 3; do
+    if DEBIAN_FRONTEND=noninteractive apt-get "$@" >>"$FAILLOG" 2>&1; then
+      return 0
+    fi
+    if grep -qi 'could not get lock\|is another process using it\|dpkg frontend lock' "$FAILLOG"; then
+      echo "  another process holds the apt lock; waiting 20s (try $attempt of 3)..."
+      sleep 20
+    else
+      return 1
+    fi
+  done
+  return 1
+}
+
 # Debian and Ubuntu ship python3 without pip. Try to add it rather than dying
 # with "No module named pip", which is what used to happen here.
 bootstrap_pip() {   # $1 = interpreter
   local py="$1"
   have_pip "$py" && return 0
   echo "  pip is missing for $py, trying to add it..."
-  "$py" -m ensurepip --default-pip >/dev/null 2>&1 || true
+  "$py" -m ensurepip --default-pip >>"$FAILLOG" 2>&1 || true
   have_pip "$py" && return 0
-  if [[ $EUID -eq 0 ]] && command -v apt-get >/dev/null 2>&1; then
-    echo "  installing python3-pip with apt (this can take a minute)..."
-    DEBIAN_FRONTEND=noninteractive apt-get update -qq  >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-pip >/dev/null 2>&1 || true
+  if [[ $EUID -ne 0 ]]; then
+    echo "  cannot install pip without root."
+    return 1
   fi
+  command -v apt-get >/dev/null 2>&1 || { echo "  no apt-get on this system."; return 1; }
+  echo "  installing python3-pip with apt (this can take a minute)..."
+  apt_try update -qq || echo "  'apt-get update' failed; trying the install anyway..."
+  apt_try install -y -qq python3-pip || echo "  'apt-get install python3-pip' failed."
   have_pip "$py"
 }
 
 install_openai() {   # $1 = interpreter
   local py="$1"
   has_openai "$py" && return 0
-  bootstrap_pip "$py" || return 1
-  # PIP_USER=0 stops pip quietly installing into ~/.local when a shared
-  # install is what was asked for.
-  PIP_USER=0 "$py" -m pip install --quiet openai 2>/dev/null && return 0
-  PIP_USER=0 "$py" -m pip install --quiet --break-system-packages openai 2>/dev/null && return 0
+  if bootstrap_pip "$py"; then
+    # PIP_USER=0 stops pip quietly installing into ~/.local when a shared
+    # install is what was asked for.
+    PIP_USER=0 "$py" -m pip install --quiet openai >>"$FAILLOG" 2>&1 && return 0
+    PIP_USER=0 "$py" -m pip install --quiet --break-system-packages openai >>"$FAILLOG" 2>&1 && return 0
+  fi
+  # No usable pip. Some distributions package the module itself, which skips
+  # the pip problem entirely.
+  if [[ $EUID -eq 0 ]] && command -v apt-get >/dev/null 2>&1; then
+    echo "  trying the distro package python3-openai instead..."
+    apt_try install -y -qq python3-openai && has_openai "$py" && return 0
+  fi
   return 1
 }
 
@@ -214,9 +253,21 @@ else
   echo "!! NOT FINISHED - the 'openai' package is still missing, so 'ai'"
   echo "!! will fail with \"No module named 'openai'\"."
   echo
-  echo "$STEP. Install it (copy and paste both lines):"
-  echo "     sudo apt update && sudo apt install -y python3-pip"
+  if [[ -s "$FAILLOG" ]]; then
+    echo "What actually went wrong (last 12 lines):"
+    echo "-----------------------------------------------------------------"
+    tail -n 12 "$FAILLOG" | sed 's/^/  /'
+    echo "-----------------------------------------------------------------"
+    echo
+  fi
+  echo "$STEP. Install it by hand so you can see any error:"
+  echo "     sudo apt update"
+  echo "     sudo apt install -y python3-pip"
   echo "     sudo $TARGET_PY -m pip install --break-system-packages openai"
+  echo
+  echo "   If apt says a lock is held, wait a minute and try again -"
+  echo "   Ubuntu runs its own updater for a while after booting."
+  echo "   If apt cannot reach a mirror, check the VM has a network."
   echo
   STEP=$((STEP + 1))
 fi
