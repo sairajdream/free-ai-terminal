@@ -170,20 +170,72 @@ bootstrap_pip() {   # $1 = interpreter
   have_pip "$py"
 }
 
-install_openai() {   # $1 = interpreter
-  local py="$1"
-  has_openai "$py" && return 0
+# A private virtualenv is the preferred home for the dependency. Installing into
+# the system python means fighting whatever the distribution already put there:
+# on Ubuntu 24.04 pip refuses to replace Debian's typing_extensions ("RECORD
+# file not found"), and PEP 668 marks the whole interpreter externally managed.
+# A venv sidesteps all of it, and touches nothing apt owns.
+make_venv() {   # $1 = base interpreter, $2 = venv path
+  local py="$1" dir="$2"
+  "$py" -m venv "$dir" >>"$FAILLOG" 2>&1 && return 0
+  # Debian and Ubuntu split venv into its own package.
+  if [[ $EUID -eq 0 ]] && command -v apt-get >/dev/null 2>&1; then
+    local pyver
+    pyver="$("$py" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+    echo "  installing python3-venv with apt..."
+    apt_try update -qq || true
+    apt_try install -y -qq python3-venv ${pyver:+"python$pyver-venv"} || true
+    rm -rf "$dir"
+    "$py" -m venv "$dir" >>"$FAILLOG" 2>&1 && return 0
+  fi
+  rm -rf "$dir"
+  return 1
+}
+
+# Sets RUNTIME_PY to an interpreter that can import openai, or returns 1.
+RUNTIME_PY=""
+provide_openai() {   # $1 = interpreter students would otherwise use
+  local py="$1" venv="$SHAREDIR/venv"
+
+  # Already there (a distro package, or a previous run)? Nothing to do.
+  if has_openai "$py"; then RUNTIME_PY="$py"; return 0; fi
+
+  # Reuse a venv from an earlier install rather than rebuilding it.
+  if [[ -x "$venv/bin/python3" ]] && "$venv/bin/python3" -c "import openai" 2>/dev/null; then
+    RUNTIME_PY="$venv/bin/python3"; return 0
+  fi
+
+  echo "  setting up a private environment in $venv..."
+  if make_venv "$py" "$venv"; then
+    if "$venv/bin/python3" -m pip install --quiet --upgrade openai >>"$FAILLOG" 2>&1 \
+       && "$venv/bin/python3" -c "import openai" 2>/dev/null; then
+      chmod -R a+rX "$venv"
+      RUNTIME_PY="$venv/bin/python3"; return 0
+    fi
+    echo "  the private environment did not work; falling back to $py."
+  else
+    echo "  could not create a private environment; falling back to $py."
+  fi
+
+  # Fall back to installing into the interpreter itself.
   if bootstrap_pip "$py"; then
     # PIP_USER=0 stops pip quietly installing into ~/.local when a shared
     # install is what was asked for.
-    PIP_USER=0 "$py" -m pip install --quiet openai >>"$FAILLOG" 2>&1 && return 0
-    PIP_USER=0 "$py" -m pip install --quiet --break-system-packages openai >>"$FAILLOG" 2>&1 && return 0
+    local opt
+    for opt in "" "--break-system-packages" "--break-system-packages --ignore-installed"; do
+      # shellcheck disable=SC2086
+      if PIP_USER=0 "$py" -m pip install --quiet $opt openai >>"$FAILLOG" 2>&1 && has_openai "$py"; then
+        RUNTIME_PY="$py"; return 0
+      fi
+    done
   fi
-  # No usable pip. Some distributions package the module itself, which skips
-  # the pip problem entirely.
+
+  # Some distributions package the module itself, which skips pip entirely.
   if [[ $EUID -eq 0 ]] && command -v apt-get >/dev/null 2>&1; then
     echo "  trying the distro package python3-openai instead..."
-    apt_try install -y -qq python3-openai && has_openai "$py" && return 0
+    if apt_try install -y -qq python3-openai && has_openai "$py"; then
+      RUNTIME_PY="$py"; return 0
+    fi
   fi
   return 1
 }
@@ -203,14 +255,6 @@ install -m 0644 "$SRC/ai-keys.template" "$SHAREDIR/ai-keys.template"
 # providers.json is optional local tuning; ship it only if present
 [[ -f "$SRC/providers.json" ]] && install -m 0644 "$SRC/providers.json" "$SHAREDIR/providers.json"
 
-# Pin the interpreter for a shared install. With `#!/usr/bin/env python3` the
-# command resolves to whatever python3 is first on PATH, so it would work for
-# an instructor inside conda and fail for every student. An absolute shebang
-# makes `ai` behave identically for everyone.
-if [[ "$MODE" == "system" && -x "$STUDENT_PY" ]]; then
-  sed -i "1s|^#!.*|#!$STUDENT_PY|" "$SHAREDIR/ai"
-fi
-
 ln -sf "$SHAREDIR/ai" "$BINDIR/ai"
 
 # A first-run greeting so a student who types `ai` before adding keys is not lost.
@@ -224,13 +268,19 @@ EOF
   chmod 0644 /etc/profile.d/ai-toolkit.sh
 fi
 
+echo
+echo "Setting up the one dependency (openai)..."
 OPENAI_OK=1
-if ! has_openai "$TARGET_PY"; then
-  echo
-  echo "Installing the one dependency (openai) for $TARGET_PY..."
-  install_openai "$TARGET_PY" || OPENAI_OK=0
+provide_openai "$TARGET_PY" || OPENAI_OK=0
+
+# Pin the interpreter. With `#!/usr/bin/env python3` the command resolves to
+# whatever python3 is first on PATH, so it would work for an instructor inside
+# conda and fail for every student. An absolute shebang pointing at the
+# interpreter we just verified makes `ai` behave identically for everyone.
+PINNED_PY="${RUNTIME_PY:-$TARGET_PY}"
+if [[ -x "$PINNED_PY" ]] && { [[ "$MODE" == "system" ]] || [[ "$PINNED_PY" == "$SHAREDIR/venv/bin/python3" ]]; }; then
+  sed -i "1s|^#!.*|#!$PINNED_PY|" "$SHAREDIR/ai"
 fi
-has_openai "$TARGET_PY" || OPENAI_OK=0
 
 # ---------------------------------------------------------------------------
 # Next steps, always printed, whatever happened above.
@@ -247,7 +297,10 @@ echo
 
 STEP=1
 if [[ $OPENAI_OK -eq 1 ]]; then
-  echo "Checked: $TARGET_PY can import openai$( [[ "$MODE" == "system" ]] && echo " (visible to all users)" )."
+  echo "Checked: 'ai' runs on $PINNED_PY and can import openai."
+  if [[ "$PINNED_PY" == "$SHAREDIR/venv/bin/python3" ]]; then
+    echo "         (a private environment, so nothing apt or conda owns was touched)"
+  fi
   echo
 else
   echo "!! NOT FINISHED - the 'openai' package is still missing, so 'ai'"
@@ -260,10 +313,12 @@ else
     echo "-----------------------------------------------------------------"
     echo
   fi
-  echo "$STEP. Install it by hand so you can see any error:"
-  echo "     sudo apt update"
-  echo "     sudo apt install -y python3-pip"
-  echo "     sudo $TARGET_PY -m pip install --break-system-packages openai"
+  echo "$STEP. Build the private environment by hand so you see any error:"
+  echo "     sudo apt update && sudo apt install -y python3-venv"
+  echo "     sudo $TARGET_PY -m venv $SHAREDIR/venv"
+  echo "     sudo $SHAREDIR/venv/bin/python3 -m pip install openai"
+  echo "     sudo chmod -R a+rX $SHAREDIR/venv"
+  echo "     sudo sed -i '1s|^#!.*|#!$SHAREDIR/venv/bin/python3|' $SHAREDIR/ai"
   echo
   echo "   If apt says a lock is held, wait a minute and try again -"
   echo "   Ubuntu runs its own updater for a while after booting."

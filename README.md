@@ -40,9 +40,12 @@ sudo ./install.sh      # then run it
 ```
 </details>
 
-Only dependency is the `openai` Python package. The installer adds it, including
-installing `pip` first if Debian or Ubuntu left it out. If that step cannot
-finish it says so and prints the one command to run; it never fails silently.
+Only dependency is the `openai` Python package. The installer puts it in a
+private virtualenv under `share/ai-toolkit/venv` and points `ai` at that
+interpreter, so it never argues with the system Python: no PEP 668
+"externally managed environment", no clash with distro-packaged modules, and
+nothing apt or conda owns gets modified. If that step cannot finish it prints
+the real error and the exact commands to fix it; it never fails silently.
 
 Run it with `sudo`. Without root it installs for your user alone, into
 `~/.local`, which is not what you want on a shared teaching VM. Run it from
