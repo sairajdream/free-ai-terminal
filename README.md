@@ -60,7 +60,7 @@ Copy the template, paste your keys, done. **You never edit `~/.bashrc`.**
 
 ```bash
 cp /usr/local/share/ai-toolkit/ai-keys.template ~/.ai-keys
-nano ~/.ai-keys
+gedit ~/.ai-keys
 chmod 600 ~/.ai-keys
 ai status
 ```
