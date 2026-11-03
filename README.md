@@ -59,11 +59,12 @@ students actually use.
 Copy the template, paste your keys, done. **You never edit `~/.bashrc`.**
 
 ```bash
-cp /usr/local/share/ai-toolkit/ai-keys.template ~/.ai-keys
-gedit ~/.ai-keys
-chmod 600 ~/.ai-keys
+ai keys       # creates ~/.ai-keys from the template, opens it, keeps it private
 ai status
 ```
+
+Put the file somewhere else (for example on a persistent volume in a container)
+with `export AI_KEYS_FILE=/path/to/ai-keys`.
 
 ### The seven worth having
 
@@ -144,7 +145,15 @@ If the answer is a command, it offers to run it. Read-only commands (`ls`,
 fork bombs · `curl … | bash` · `shutdown`
 
 Checked by parsing the command, not pattern-matching, so `sudo rm -rf /home/you`
-is caught too.
+is caught too. Commands chained with a newline or `&` are checked one by one, and
+"looking" commands with a writing mode (`sed -i`, `find -delete`, `sort -o`,
+`pip install`, `env CMD`) always ask first.
+
+### Your keys never leave your machine
+
+Commands run by `ai fix` do not inherit your API keys, and every prompt is
+scrubbed of them before it is sent, so `env`, `cat ~/.ai-keys` or a wrongly
+attached file cannot hand them to a provider (some free tiers train on prompts).
 
 ---
 

@@ -1,12 +1,8 @@
 # ~/.ai-keys  -  your personal AI API keys
 #
-# Copy this file to your home folder as .ai-keys and paste your own keys in.
+# Run   ai keys   to open this file, paste your own keys in, save and close.
+# (It creates ~/.ai-keys from this template and keeps it private.)
 # Do NOT edit ~/.bashrc - this file is all you need.
-#
-#     cp /usr/local/share/ai-toolkit/ai-keys.template ~/.ai-keys
-#     nano ~/.ai-keys
-#     chmod 600 ~/.ai-keys
-#     ai status
 #
 # Rules:
 #   - one key per line, KEY=value, no spaces around the =

@@ -246,9 +246,12 @@ def _state_path() -> Path:
 
 STATE_FILE = _state_path()
 CONFIG_FILE = Path(os.environ.get("SMART_LLM_CONFIG", HERE / "providers.json"))
+# The student's key file. AI_KEYS_FILE moves it, e.g. onto a persistent volume
+# in a container whose home directory is reset on every start.
+KEYS_FILE = Path(os.environ.get("AI_KEYS_FILE") or Path.home() / ".ai-keys").expanduser()
 # Checked in order; the first value found for a key wins.
 ENV_FILES = [
-    Path.home() / ".ai-keys",                       # what students are given
+    KEYS_FILE,                                      # what students are given
     HERE / ".env",
     Path.home() / ".config" / "smart_llm" / "env",
 ]
@@ -357,6 +360,34 @@ def has_key(p: dict) -> bool:
 def api_key_for(p: dict) -> str:
     env = p.get("api_key_env")
     return os.environ[env] if env else p.get("api_key", "none")
+
+
+def secret_env_names() -> set[str]:
+    """Every environment variable that holds an API key for some provider."""
+    names = {p["api_key_env"] for p in load_providers() + PROVIDERS if p.get("api_key_env")}
+    return names | {v for p in PROVIDERS for v in re.findall(r"\$\{(\w+)\}", p.get("base_url", ""))}
+
+
+def redact(text: str) -> str:
+    """Replace any of the user's API keys in `text` before it leaves the machine.
+
+    Keys get into prompts more easily than you'd think: `env` or `cat ~/.ai-keys`
+    run by the agent, or a student attaching the wrong file. The free tiers that
+    train on prompts would then hold their keys.
+    """
+    for name in secret_env_names():
+        value = os.environ.get(name, "")
+        if len(value) >= 8 and value in text:
+            text = text.replace(value, f"[{name} hidden]")
+    return text
+
+
+def any_keys() -> bool:
+    return any(has_key(p) for p in load_providers())
+
+
+NO_KEYS_HELP = ("You have not added any AI keys yet, so there is nobody to ask.\n"
+                "Type   ai keys   to add them (it takes two minutes, no credit card).")
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +573,8 @@ def classify(exc: Exception) -> tuple[str, float]:
         return ("daily" if daily else "rate"), (retry_after or (3600 if daily else 60))
     if status == 404:
         return "model", 86400             # model name wrong for this provider
+    if status == 413:
+        return "too_large", 0             # e.g. Groq's 8k tokens/min vs a big prompt: ours, not theirs
     if status and 500 <= status < 600:
         return "server", 30
     if status == 400:
@@ -613,6 +646,8 @@ def ask(
     providers = load_providers()
     pool = candidates(providers, only, exclude, prefer_long, order)
     if not pool:
+        if not any_keys():
+            raise RuntimeError(NO_KEYS_HELP)
         raise RuntimeError(
             "No usable providers. Set at least one API key (see --list) "
             "or enable the keyless ones with --enable pollinations."
@@ -623,6 +658,9 @@ def ask(
         messages.insert(0, {"role": "system", "content": system})
     if prompt is not None:
         messages.append({"role": "user", "content": prompt})
+    for m in messages:                    # last line of defence: no key leaves the machine
+        if isinstance(m.get("content"), str):
+            m["content"] = redact(m["content"])
 
     est_in = estimate_tokens(json.dumps(messages))
     est_total = est_in + (max_tokens or 800)
@@ -719,7 +757,7 @@ def ask(
                 kind, cool = "bad_model_override", 0
             if kind == "daily":
                 ledger.exhaust_day(picked, short)
-            elif kind in ("bad_request", "bad_model_override"):
+            elif kind in ("bad_request", "bad_model_override", "too_large"):
                 # Our request, not their quota. Retrying elsewhere is still worth
                 # a shot (context limits differ) but don't penalise this provider.
                 pass

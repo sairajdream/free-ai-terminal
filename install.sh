@@ -261,8 +261,8 @@ ln -sf "$SHAREDIR/ai" "$BINDIR/ai"
 if [[ "$MODE" == "system" ]]; then
   cat > /etc/profile.d/ai-toolkit.sh <<EOF
 # AI toolkit: remind the user once if they have not set up their keys yet
-if [ -n "\$PS1" ] && [ ! -f "\$HOME/.ai-keys" ] && [ -f $SHAREDIR/ai-keys.template ]; then
-  echo "Set up your AI helper:  cp $SHAREDIR/ai-keys.template ~/.ai-keys && nano ~/.ai-keys"
+if [ -n "\$PS1" ] && [ ! -f "\${AI_KEYS_FILE:-\$HOME/.ai-keys}" ] && [ -f $SHAREDIR/ai-keys.template ]; then
+  echo "Set up your AI helper:  ai keys"
 fi
 EOF
   chmod 0644 /etc/profile.d/ai-toolkit.sh
@@ -338,9 +338,7 @@ if [[ ":$PATH:" != *":$BINDIR:"* ]]; then
 fi
 
 echo "$STEP. Add your free API keys (each student does this once):"
-echo "     cp $SHAREDIR/ai-keys.template ~/.ai-keys"
-echo "     nano ~/.ai-keys        # paste your own keys"
-echo "     chmod 600 ~/.ai-keys"
+echo "     ai keys                # opens the key file; paste your own keys"
 echo
 STEP=$((STEP + 1))
 echo "$STEP. Check it works:"

@@ -150,7 +150,7 @@ C_ASK = "\033[93m"; C_RUN = "\033[96m"; C_BAD = "\033[91m"; C_OK = "\033[92m"; C
 def _stages(cmd: str) -> list[list[str]]:
     """Split a command line into pipeline/sequence stages, tokenised."""
     out = []
-    for stage in re.split(r"\||;|&&|\|\||&", cmd):
+    for stage in re.split(r"\|\||&&|[|;&\n]", cmd):
         try:
             toks = shlex.split(stage)
         except ValueError:
@@ -190,23 +190,79 @@ def is_forbidden(cmd: str) -> str | None:
     return None
 
 
+# find actions that act on what they find instead of just listing it
+FIND_ACTIONS = {"-delete", "-exec", "-execdir", "-ok", "-okdir",
+                "-fprint", "-fprint0", "-fprintf", "-fls"}
+
+
+def _args_read_only(parts: list[str]) -> bool:
+    """Whether a command from READ_ONLY really only looks, given its arguments.
+
+    Several "looking" commands have a writing mode (`sed -i`, `find -delete`,
+    `sort -o`), and some just run whatever follows (`env CMD`, `python x.py`).
+    """
+    cmd, args = parts[0], parts[1:]
+    short_flags = "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
+    if cmd == "sed":
+        return "i" not in short_flags and not any(a.startswith("--in-place") for a in args)
+    if cmd == "find":
+        return not FIND_ACTIONS.intersection(args)
+    if cmd in ("python", "python3"):
+        return args in (["--version"], ["-V"])
+    if cmd == "pip":
+        return bool(args) and args[0] in ("list", "show", "freeze", "check", "--version", "-V")
+    if cmd == "conda":
+        return bool(args) and (args[0] in ("list", "info", "--version", "-V") or args[:2] == ["env", "list"])
+    if cmd == "env":
+        return not args                    # `env CMD ...` runs CMD
+    if cmd == "awk":
+        return "system(" not in " ".join(args)
+    if cmd == "sort":
+        return "o" not in short_flags and not any(a.startswith("--output") for a in args)
+    if cmd == "tree":
+        return "-o" not in args
+    if cmd == "uniq":
+        return len([a for a in args if not a.startswith("-")]) <= 1   # 2nd file is an output
+    if cmd == "git":
+        if not args:
+            return True
+        sub, rest = args[0], args[1:]
+        if sub in ("status", "log", "diff", "show"):
+            return True
+        if sub == "branch":
+            return all(a in ("-a", "-r", "-v", "-vv", "--list", "--all") for a in rest)
+        if sub == "remote":
+            return all(a in ("-v", "--verbose", "show") for a in rest[:1])
+        if sub == "config":
+            return any(a in ("--get", "--get-all", "--list", "-l") for a in rest)
+        return False
+    return True
+
+
 def is_read_only(cmd: str) -> bool:
     """True only if every stage of the pipeline is a known harmless command."""
-    if re.search(r"[>]{1,2}[^&]|(^|\s)sudo\s|`|\$\(", cmd):
-        return False                       # redirects out, sudo, command substitution
-    for stage in re.split(r"\||;|&&|\|\|", cmd):
+    if re.search(r"[>]{1,2}[^&]|(^|\s)sudo\s|`|\$\(|<\(", cmd):
+        return False                       # redirects out, sudo, command/process substitution
+    # Newlines and a lone & separate commands too: "ls\nrm -r x" must not pass as "ls".
+    for stage in re.split(r"\|\||&&|[|;&\n]", cmd):
         try:
             parts = shlex.split(stage)
         except ValueError:
             return False
         if not parts:
             continue
-        if parts[0] not in READ_ONLY:
-            return False
-        if parts[0] in ("git",) and len(parts) > 1 and parts[1] not in (
-                "status", "log", "diff", "branch", "show", "remote", "config"):
+        if parts[0] not in READ_ONLY or not _args_read_only(parts):
             return False
     return True
+
+
+def keyless_env() -> dict:
+    """The environment for commands we run, minus the API keys loaded from ~/.ai-keys.
+
+    Otherwise `env` or `printenv` hands every key to the model in the tool result.
+    """
+    secret = smart_llm.secret_env_names()
+    return {k: v for k, v in os.environ.items() if k not in secret}
 
 
 def confirm(prompt: str) -> bool:
@@ -247,7 +303,7 @@ def do_run_command(args: dict, opts) -> str:
 
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                           timeout=opts.command_timeout, cwd=os.getcwd())
+                           timeout=opts.command_timeout, cwd=os.getcwd(), env=keyless_env())
     except subprocess.TimeoutExpired:
         return f"TIMEOUT after {opts.command_timeout}s"
     except Exception as e:                                  # noqa: BLE001
@@ -392,6 +448,10 @@ def main(argv=None, prog="tutor.py") -> int:
     ap.add_argument("--timeout", type=float, default=90.0)
     ap.add_argument("--command-timeout", type=float, default=30.0)
     opts = ap.parse_args(argv)
+
+    if not smart_llm.any_keys():
+        print(f"{C_BAD}{smart_llm.NO_KEYS_HELP}{C_OFF}")
+        return 2
 
     if not opts.provider:
         reliable = smart_llm.candidates(smart_llm.load_providers(), only=TOOL_CAPABLE)

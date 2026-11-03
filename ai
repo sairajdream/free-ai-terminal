@@ -13,6 +13,7 @@ tutor.py (safe command execution). This replaces sgpt for us, and unlike sgpt
 it fails over between providers, so it keeps working when one quota runs out.
 
 Utilities:
+    ai keys           add/edit your API keys (creates ~/.ai-keys from the template)
     ai status         how much free quota is left
     ai help           this message
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -74,7 +76,7 @@ def offer_to_run(cmd: str) -> None:
         return
     print(f"{C_CMD}$ {cmd}{C_OFF}")
     try:
-        subprocess.run(cmd, shell=True, timeout=120)
+        subprocess.run(cmd, shell=True, timeout=120, env=tutor.keyless_env())
     except subprocess.TimeoutExpired:
         print(f"{C_BAD}(timed out after 120s){C_OFF}")
     except Exception as e:                                  # noqa: BLE001
@@ -116,6 +118,39 @@ def do_ask(question: str, files: list[str]) -> int:
     return 0
 
 
+def do_keys() -> int:
+    """`ai keys`: the whole key setup in one step - create from the template, edit, lock down."""
+    path = smart_llm.KEYS_FILE
+    if not path.exists():
+        template = Path(__file__).resolve().parent / "ai-keys.template"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(template.read_text() if template.is_file()
+                        else "GROQ_API_KEY=\nMISTRAL_API_KEY=\n")
+        print(f"Created {path} from the template.")
+    path.chmod(0o600)                      # keys are private, whatever the editor does
+
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "nano"
+    print(f"Opening it in {editor}. Paste each key right after its = sign, then save and close.")
+    if "nano" in editor:
+        print(f"{C_DIM}  nano: Ctrl+O then Enter saves, Ctrl+X closes{C_OFF}")
+    try:
+        subprocess.run([*shlex.split(editor), str(path)])
+    except FileNotFoundError:
+        print(f"{C_BAD}Could not start {editor}. Open {path} in any text editor instead.{C_OFF}")
+        return 1
+    path.chmod(0o600)
+
+    smart_llm.load_env_files()             # pick up what was just pasted
+    ready = sorted({p["api_key_env"] for p in smart_llm.load_providers()
+                    if p.get("api_key_env") and smart_llm.has_key(p)})
+    if ready:
+        print(f"{C_Q}Keys found: {', '.join(ready)}.{C_OFF} Try:  {C_CMD}ai what does ls -l show{C_OFF}")
+    else:
+        print(f"{C_BAD}No keys found yet.{C_OFF} Check there is no space around the = sign, "
+              f"e.g. GROQ_API_KEY=gsk_abc123, then run {C_CMD}ai keys{C_OFF} again.")
+    return 0
+
+
 HELP = f"""{C_Q}ai{C_OFF} - your AI helper for the terminal. There are only two commands.
 
 {C_Q}1. Ask a question{C_OFF}
@@ -153,6 +188,7 @@ HELP = f"""{C_Q}ai{C_OFF} - your AI helper for the terminal. There are only two 
   saying yes. Dangerous ones ({C_CMD}rm -rf ~{C_OFF}, anything with {C_CMD}sudo{C_OFF}) are refused.
 
 {C_Q}Other{C_OFF}
+    {C_CMD}ai keys{C_OFF}        add or change your free API keys (do this first)
     {C_CMD}ai status{C_OFF}      how much free quota you have left today
     {C_CMD}ai help{C_OFF}        this message
 
@@ -175,6 +211,8 @@ def main(argv=None) -> int:
         return 0
     if argv[0] == "status":
         return smart_llm.main(["--status"])
+    if argv[0] == "keys":
+        return do_keys()
     if argv[0] == "fix":
         return tutor.main(argv[1:], prog="ai fix")
 

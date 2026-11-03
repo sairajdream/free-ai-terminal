@@ -18,9 +18,7 @@ The `ai` command is already installed. You only need to add your own keys.
 **Do not edit `~/.bashrc`.** You never need to touch it.
 
 ```bash
-cp /usr/local/share/ai-toolkit/ai-keys.template ~/.ai-keys
-nano ~/.ai-keys        # paste your keys, then Ctrl+O, Enter, Ctrl+X
-chmod 600 ~/.ai-keys   # keeps your keys private
+ai keys                # opens your key file: paste keys, then Ctrl+O, Enter, Ctrl+X
 ai status              # should say "ready"
 ```
 
@@ -36,7 +34,7 @@ Two keys is enough. Optional extras are listed inside the template.
 Use **your own** keys, never a shared one. The free limits are counted per
 account, so one shared key means the whole room runs out at the same moment.
 
-If `ai status` says `no key`, check that `~/.ai-keys` has no spaces around the
+If `ai status` says `no key`, run `ai keys` and check there are no spaces around the
 `=` sign and no quotes: `GROQ_API_KEY=gsk_abc123`
 
 ---
